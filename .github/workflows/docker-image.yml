@@ -24,7 +24,11 @@ on:
         required: true
         default: "linux/amd64,linux/arm64"
       snowluma_tag:
-        description: SnowLuma release tag whose artifact should be baked in (defaults to `tag`).
+        description: SnowLuma release tag whose artifact should be baked in (defaults to `tag`). Can also be a branch-based release tag like `dev` if available.
+        required: false
+        default: ""
+      snowluma_branch:
+        description: SnowLuma source branch to use. If provided, will try to fetch artifacts from this branch. Ignored if snowluma_tag is set.
         required: false
         default: ""
       snowluma_repository:
@@ -85,7 +89,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SNOWLUMA_REPO: ${{ inputs.snowluma_repository }}
-          SNOWLUMA_TAG: ${{ inputs.snowluma_tag != '' && inputs.snowluma_tag || inputs.tag }}
+          SNOWLUMA_TAG: ${{ inputs.snowluma_tag }}
+          SNOWLUMA_BRANCH: ${{ inputs.snowluma_branch }}
+          DEFAULT_TAG: ${{ inputs.tag }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
@@ -94,9 +100,24 @@ jobs:
             arm64) asset_arch="linux-arm64" ;;
             *) echo "Unsupported matrix arch: ${ARCH}" >&2; exit 1 ;;
           esac
-          asset="SnowLuma-${SNOWLUMA_TAG}-${asset_arch}-lite.tar.gz"
-          echo "Fetching ${asset} from ${SNOWLUMA_REPO}@${SNOWLUMA_TAG}"
-          gh release download "${SNOWLUMA_TAG}" \
+          
+          # Determine which reference to use: snowluma_tag > snowluma_branch > tag
+          ref=""
+          if [ -n "${SNOWLUMA_TAG}" ]; then
+            ref="${SNOWLUMA_TAG}"
+          elif [ -n "${SNOWLUMA_BRANCH}" ]; then
+            ref="${SNOWLUMA_BRANCH}"
+          else
+            ref="${DEFAULT_TAG}"
+          fi
+          if [ -z "${ref}" ]; then
+            echo "No reference found. Either tag or snowluma_branch must be provided." >&2
+            exit 1
+          fi
+          
+          asset="SnowLuma-${ref}-${asset_arch}-lite.tar.gz"
+          echo "Fetching ${asset} from ${SNOWLUMA_REPO}@${ref}"
+          gh release download "${ref}" \
             --repo "${SNOWLUMA_REPO}" \
             --pattern "${asset}" \
             --output SnowLuma.Framework.tar.gz \

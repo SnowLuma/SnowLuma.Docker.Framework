@@ -58,6 +58,10 @@ SnowLuma 主仓库每次发 tag 都会自动派发 workflow_dispatch 到本仓�
 
 也可以在 Actions 页手动触发 `docker-publish` 工作流，对任意已发布的 SnowLuma tag 重打镜像。
 
+支持指定 SnowLuma 分支来获取构建产物：
+- **指定 release tag**：设置 `snowluma_tag=v1.6.35` 或 `snowluma_tag=dev` 来获取对应的已发布版本。
+- **指定 source 分支**：设置 `snowluma_branch=main` 或 `snowluma_branch=dev` 来从分支对应的 release 获取（优先级低于 tag）。
+
 ## 启动
 
 ```bash
