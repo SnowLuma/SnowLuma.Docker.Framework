@@ -31,6 +31,14 @@ on:
         description: SnowLuma source repository in `owner/repo` form. Leave blank to fall back to the checked-in SnowLuma.Framework.tar.gz.
         required: false
         default: "SnowLuma/SnowLuma"
+      ghcr_image:
+        description: 'GHCR image name (e.g. ghcr.io/snowluma/snowluma). Leave empty to skip GHCR.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   resolve:
@@ -113,12 +121,21 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Login to GHCR
+        if: ${{ inputs.push && inputs.ghcr_image != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build image
         env:
           IMAGE: ${{ inputs.image }}
           TAG: ${{ inputs.tag }}
           PUSH: ${{ inputs.push }}
           PLATFORM: ${{ matrix.platform }}
+          GHCR_IMAGE: ${{ inputs.ghcr_image }}
         run: |
           set -eu
           if [ -z "${IMAGE}" ]; then
@@ -145,6 +162,24 @@ jobs:
             fi
             mkdir -p digests
             touch "digests/${digest#sha256:}"
+
+            if [ -n "${GHCR_IMAGE}" ]; then
+              docker buildx build \
+                --platform "${PLATFORM}" \
+                --tag "${GHCR_IMAGE}" \
+                --file ./Dockerfile \
+                --output "type=image,push-by-digest=true,name-canonical=true,push=true" \
+                --metadata-file metadata-ghcr.json \
+                .
+              ghcr_digest="$(jq -r '."containerimage.digest"' metadata-ghcr.json)"
+              if [ -z "${ghcr_digest}" ] || [ "${ghcr_digest}" = "null" ]; then
+                echo "Unable to resolve pushed GHCR image digest" >&2
+                cat metadata-ghcr.json >&2
+                exit 1
+              fi
+              mkdir -p digests-ghcr
+              touch "digests-ghcr/${ghcr_digest#sha256:}"
+            fi
           else
             docker buildx build \
               --platform "${PLATFORM}" \
@@ -163,9 +198,20 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Upload GHCR digest
+        if: ${{ inputs.push && inputs.ghcr_image != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ghcr-digest-${{ matrix.arch }}
+          path: digests-ghcr/*
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Docker logout
         if: ${{ always() && inputs.push }}
-        run: docker logout || true
+        run: |
+          docker logout || true
+          docker logout ghcr.io || true
 
   merge:
     if: ${{ inputs.push }}
@@ -184,11 +230,27 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Login to GHCR
+        if: ${{ inputs.ghcr_image != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download Docker image digests
         uses: actions/download-artifact@v7
         with:
           pattern: docker-digest-*
           path: digests
+          merge-multiple: true
+
+      - name: Download GHCR digests
+        if: ${{ inputs.ghcr_image != '' }}
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ghcr-digest-*
+          path: digests-ghcr
           merge-multiple: true
 
       - name: Create Docker manifest
@@ -214,6 +276,32 @@ jobs:
           docker buildx imagetools create "${tags[@]}" "${refs[@]}"
           docker buildx imagetools inspect "${image}:${tag}"
 
+      - name: Create GHCR manifest
+        if: ${{ inputs.ghcr_image != '' }}
+        run: |
+          set -euo pipefail
+          ghcr_image="${{ inputs.ghcr_image }}"
+          tag="${{ inputs.tag }}"
+          cd digests-ghcr
+          shopt -s nullglob
+          ghcr_digest_files=(*)
+          if [ "${#ghcr_digest_files[@]}" -eq 0 ]; then
+            echo "No GHCR digests were produced" >&2
+            exit 1
+          fi
+          ghcr_refs=()
+          for digest in "${ghcr_digest_files[@]}"; do
+            ghcr_refs+=("${ghcr_image}@sha256:${digest}")
+          done
+          ghcr_tags=(--tag "${ghcr_image}:${tag}")
+          if [ "${tag}" != "latest" ]; then
+            ghcr_tags+=(--tag "${ghcr_image}:latest")
+          fi
+          docker buildx imagetools create "${ghcr_tags[@]}" "${ghcr_refs[@]}"
+          docker buildx imagetools inspect "${ghcr_image}:${tag}"
+
       - name: Docker logout
         if: always()
-        run: docker logout || true
+        run: |
+          docker logout || true
+          docker logout ghcr.io || true
