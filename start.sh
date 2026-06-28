@@ -68,6 +68,18 @@ chmod 700 "${XDG_RUNTIME_DIR}"
 # hook socket look like a live SnowLuma injection.
 find "${XDG_RUNTIME_DIR}" -maxdepth 1 -type s -name 'mojo.*.*.sock' -delete 2>/dev/null || true
 
+# Freeze the bundled QQ version. QQ has two update paths: the "立即更新" full-update
+# dialog (click-gated -> never fires headless) and a SILENT hot-update channel
+# (hotUpdateApi -> qqpatch.gtimg.cn) that swaps QQ files in the background. Only
+# the silent one can change bytes without us, which would break the version-pinned
+# nnphook. Black-hole that single host so the hot-update download can never land.
+# QQ's main-process hot-update resolves via getaddrinfo, which honours /etc/hosts;
+# Docker writes /etc/hosts once at container start and never rewrites it after, so
+# this append is durable for the container's lifetime. Runs as root before QQ.
+if ! grep -q 'qqpatch\.gtimg\.cn' /etc/hosts 2>/dev/null; then
+  printf '0.0.0.0 qqpatch.gtimg.cn\n' >> /etc/hosts
+fi
+
 generate_extra_qq_supervisor_conf() {
   local conf="/etc/supervisor/conf.d/extra-qq.conf"
   local homes="${SNOWLUMA_EXTRA_QQ_HOMES//,/ }"
