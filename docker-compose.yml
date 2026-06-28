@@ -2,7 +2,11 @@ services:
   snowluma:
     image: ${SNOWLUMA_IMAGE:-motricseven7/snowluma:latest}
     container_name: ${SNOWLUMA_CONTAINER:-snowluma}
+    hostname: ${SNOWLUMA_CONTAINER:-snowluma}
     restart: unless-stopped
+    # Optional: fix MAC address to prevent device fingerprint changes on container recreation.
+    # Uncomment and set to an unused private MAC:
+    # mac_address: "02:42:ac:11:00:02"
     shm_size: 1gb
     cap_add:
       - SYS_PTRACE
