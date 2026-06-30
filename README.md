@@ -81,6 +81,18 @@ docker run -d \
   --security-opt seccomp=unconfined \
   -e VNC_PASSWD=vncpasswd \
   -e SNOWLUMA_WEBUI_PORT=5099 \
+  -e SNOWLUMA_QQ_FLAGS="--disable-gpu --disable-software-rasterizer --disable-gpu-compositing"
+
+## 时区
+
+容器默认时区为 `Asia/Shanghai`（在 Dockerfile 中通过 `TZ` 环境变量设置）。如需修改：
+
+```bash
+docker run -e TZ=America/New_York ... motricseven7/snowluma:latest
+```
+
+或在 `docker-compose.yml` 中设置 `TZ: America/New_York`。 \
+  -e TZ=Asia/Shanghai \
   -p 5900:5900 \
   -p 6081:6081 \
   -p 5099:5099 \
@@ -194,6 +206,16 @@ docker exec -u snowluma -e DISPLAY=:1 -e HOME=/app/qq-acct2 -d snowluma sh -lc '
 
 ```text
 SNOWLUMA_QQ_FLAGS="--disable-gpu --disable-software-rasterizer --disable-gpu-compositing"
+
+## 时区
+
+容器默认时区为 `Asia/Shanghai`（在 Dockerfile 中通过 `TZ` 环境变量设置）。如需修改：
+
+```bash
+docker run -e TZ=America/New_York ... motricseven7/snowluma:latest
+```
+
+或在 `docker-compose.yml` 中设置 `TZ: America/New_York`。
 ```
 
 此时改走纯 CPU 光栅（Skia），登录二维码照常渲染、可正常扫码，只是不再有软件 GL 那条漏内存的路径。
