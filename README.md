@@ -72,8 +72,6 @@ docker compose up -d
 
 ## docker run 示例
 
-以下是一个完整的启动命令（请根据需要修改端口映射、卷路径等）：
-
 ```bash
 docker run -d \
   --name snowluma \
@@ -198,7 +196,6 @@ docker exec -u snowluma -e DISPLAY=:1 -e HOME=/app/qq-acct2 -d snowluma sh -lc '
 
 ```text
 SNOWLUMA_QQ_FLAGS="--disable-gpu --disable-software-rasterizer --disable-gpu-compositing"
-
 ```
 
 此时改走纯 CPU 光栅（Skia），登录二维码照常渲染、可正常扫码，只是不再有软件 GL 那条漏内存的路径。
