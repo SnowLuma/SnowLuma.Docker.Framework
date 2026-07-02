@@ -37,19 +37,15 @@ mkdir -p \
   /etc/supervisor/conf.d
 
 ensure_machine_id() {
-  local target="/etc/machine-id"
   local persistent="${SNOWLUMA_DATA}/config/machine-id"
 
-  mkdir -p "$(dirname "$persistent")" || { echo "FATAL: 无法创建 machine-id 持久化目录" >&2; exit 1; }
+  mkdir -p "$(dirname "$persistent")" || { echo "FATAL: cannot create machine-id persistent directory" >&2; exit 1; }
 
-  if [ -f "$persistent" ]; then
-    cp -p "$persistent" "$target" || { echo "FATAL: 无法从 $persistent 恢复 machine-id" >&2; exit 1; }
-  else
-    dbus-uuidgen --ensure="$target" || { echo "FATAL: dbus-uuidgen 生成 machine-id 失败" >&2; exit 1; }
-    local tmpf; tmpf="$(mktemp "${persistent}.XXXXXX")" || { echo "FATAL: mktemp 创建临时文件失败" >&2; exit 1; }
-    cp -p "$target" "$tmpf" || { echo "FATAL: 无法写入临时 machine-id 文件" >&2; exit 1; }
-    mv "$tmpf" "$persistent" || { echo "FATAL: 无法持久化 machine-id" >&2; exit 1; }
+  if [ ! -f "$persistent" ]; then
+    dbus-uuidgen > "$persistent" || { echo "FATAL: dbus-uuidgen failed to generate machine-id" >&2; exit 1; }
   fi
+
+  ln -sf "$persistent" /etc/machine-id || { echo "FATAL: cannot symlink machine-id" >&2; exit 1; }
 }
 
 ensure_machine_id
