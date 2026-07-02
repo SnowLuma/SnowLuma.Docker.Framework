@@ -81,6 +81,8 @@ docker run -d \
   --security-opt seccomp=unconfined \
   -e VNC_PASSWD=vncpasswd \
   -e SNOWLUMA_WEBUI_PORT=5099 \
+  -e SNOWLUMA_QQ_FLAGS="--disable-gpu --disable-software-rasterizer --disable-gpu-compositing" \
+  -e TZ=Asia/Shanghai \
   -p 5900:5900 \
   -p 6081:6081 \
   -p 5099:5099 \
