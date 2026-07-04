@@ -1,7 +1,18 @@
 name: docker-publish
 
+# Unique marker so the dispatching workflow can locate this exact run (dev
+# dispatches all share tag=dev, so the source run id disambiguates).
+run-name: "docker-publish ${{ inputs.image }}:${{ inputs.tag }}${{ inputs.artifact_run_id != '' && format(' (src-run {0})', inputs.artifact_run_id) || '' }}"
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Serialize dev rebuilds so only the newest dev commit's image publishes.
+# Release (`v*`) rebuilds are never cancelled — each release tag is its own
+# group and cancel-in-progress only turns on for tag=dev.
+concurrency:
+  group: docker-${{ inputs.image }}-${{ inputs.tag }}
+  cancel-in-progress: ${{ inputs.tag == 'dev' }}
 
 on:
   workflow_dispatch:
@@ -31,6 +42,22 @@ on:
         description: SnowLuma source repository in `owner/repo` form. Leave blank to fall back to the checked-in SnowLuma.Framework.tar.gz.
         required: false
         default: "SnowLuma/SnowLuma"
+      artifact_run_id:
+        description: >-
+          When set, download the SnowLuma build from THIS Actions run's workflow
+          artifact (dev hand-off) instead of a GitHub Release. Requires the
+          snowluma-bot App secrets in the SnowLuma environment.
+        required: false
+        default: ""
+      also_latest:
+        description: Also move `:latest` onto the pushed manifest (turn OFF for dev).
+        required: false
+        type: boolean
+        default: true
+      sha_tag:
+        description: Extra immutable tag to add alongside `tag` (e.g. dev-<12-hex-sha>).
+        required: false
+        default: ""
 
 jobs:
   resolve:
@@ -76,16 +103,50 @@ jobs:
       - name: Checkout Docker framework
         uses: actions/checkout@v6
 
-      # Pull the per-arch lite tarball from SnowLuma's GitHub release.
-      # `gh release download` waits for the asset to be ready, retries on
-      # transient failures, and fails loudly with a precise error if the
-      # tag/asset is missing. The Dockerfile itself runs the final
-      # arch-specific presence test inside the build context.
-      - name: Download SnowLuma release artifact
+      # Split the source `owner/repo` so the App token below can be scoped to
+      # exactly that repository (artifact hand-off mode only).
+      - name: Parse SnowLuma source repository
+        id: srcrepo
+        if: ${{ inputs.artifact_run_id != '' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          SRC: ${{ inputs.snowluma_repository }}
+        run: |
+          set -eu
+          if [ -z "${SRC}" ] || [ "${SRC#*/}" = "${SRC}" ]; then
+            echo "artifact_run_id requires snowluma_repository in owner/repo form" >&2
+            exit 1
+          fi
+          echo "owner=${SRC%%/*}" >> "${GITHUB_OUTPUT}"
+          echo "repo=${SRC#*/}" >> "${GITHUB_OUTPUT}"
+
+      # Mint a SHORT-LIVED, DOWN-SCOPED token: even though snowluma-bot is
+      # installed org-wide with broad perms, this token is limited to
+      # actions:read on the single source repo — the only permission the
+      # artifact download needs.
+      - name: Mint source-repo token (artifact mode)
+        id: srctoken
+        if: ${{ inputs.artifact_run_id != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SNOWLUMA_BOT_APP_ID }}
+          private-key: ${{ secrets.SNOWLUMA_BOT_PRIVATE_KEY }}
+          owner: ${{ steps.srcrepo.outputs.owner }}
+          repositories: ${{ steps.srcrepo.outputs.repo }}
+          permission-actions: read
+
+      # Two sources for the per-arch lite tarball:
+      #   - Release mode (default, e.g. `v*` tags): `gh release download` — the
+      #     original path, one line unchanged.
+      #   - Artifact mode (dev hand-off): `gh run download` from the source
+      #     run's workflow artifact, authenticated by the down-scoped token.
+      # The Dockerfile runs the final arch-specific presence test in the build.
+      - name: Fetch SnowLuma build (release or artifact)
+        env:
+          RELEASE_TOKEN: ${{ github.token }}
+          ARTIFACT_TOKEN: ${{ steps.srctoken.outputs.token }}
           SNOWLUMA_REPO: ${{ inputs.snowluma_repository }}
           SNOWLUMA_TAG: ${{ inputs.snowluma_tag != '' && inputs.snowluma_tag || inputs.tag }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
@@ -94,13 +155,36 @@ jobs:
             arm64) asset_arch="linux-arm64" ;;
             *) echo "Unsupported matrix arch: ${ARCH}" >&2; exit 1 ;;
           esac
-          asset="SnowLuma-${SNOWLUMA_TAG}-${asset_arch}-lite.tar.gz"
-          echo "Fetching ${asset} from ${SNOWLUMA_REPO}@${SNOWLUMA_TAG}"
-          gh release download "${SNOWLUMA_TAG}" \
-            --repo "${SNOWLUMA_REPO}" \
-            --pattern "${asset}" \
-            --output SnowLuma.Framework.tar.gz \
-            --clobber
+          if [ -n "${ARTIFACT_RUN_ID}" ]; then
+            if [ "${ARCH}" != "amd64" ]; then
+              echo "Artifact hand-off mode is amd64-only; no dev artifact exists for ${ARCH}." >&2
+              exit 1
+            fi
+            export GH_TOKEN="${ARTIFACT_TOKEN}"
+            artifact="snowluma-dev-docker-${asset_arch}"
+            echo "Downloading artifact ${artifact} from ${SNOWLUMA_REPO} run ${ARTIFACT_RUN_ID}"
+            rm -rf artifact-dl
+            gh run download "${ARTIFACT_RUN_ID}" \
+              --repo "${SNOWLUMA_REPO}" \
+              --name "${artifact}" \
+              --dir artifact-dl
+            file="artifact-dl/SnowLuma-dev-${asset_arch}-lite.tar.gz"
+            if [ ! -f "${file}" ]; then
+              echo "Expected ${file} inside artifact ${artifact}" >&2
+              ls -lR artifact-dl >&2 || true
+              exit 1
+            fi
+            mv "${file}" SnowLuma.Framework.tar.gz
+          else
+            export GH_TOKEN="${RELEASE_TOKEN}"
+            asset="SnowLuma-${SNOWLUMA_TAG}-${asset_arch}-lite.tar.gz"
+            echo "Fetching ${asset} from ${SNOWLUMA_REPO}@${SNOWLUMA_TAG}"
+            gh release download "${SNOWLUMA_TAG}" \
+              --repo "${SNOWLUMA_REPO}" \
+              --pattern "${asset}" \
+              --output SnowLuma.Framework.tar.gz \
+              --clobber
+          fi
           ls -lh SnowLuma.Framework.tar.gz
 
       - name: Set up Docker buildx
@@ -192,10 +276,22 @@ jobs:
           merge-multiple: true
 
       - name: Create Docker manifest
+        env:
+          IMAGE: ${{ inputs.image }}
+          TAG: ${{ inputs.tag }}
+          ALSO_LATEST: ${{ inputs.also_latest }}
+          SHA_TAG: ${{ inputs.sha_tag }}
         run: |
           set -euo pipefail
-          image="${{ inputs.image }}"
-          tag="${{ inputs.tag }}"
+          image="${IMAGE}"
+          tag="${TAG}"
+          # Defense-in-depth: a dev publish MUST carry an immutable sha_tag, else
+          # overwriting :dev leaves dangling untagged manifests the pruner can't
+          # reach (it only targets dev-<sha>). Warn loudly if the dispatcher
+          # forgot it.
+          if [ "${tag}" = "dev" ] && [ -z "${SHA_TAG}" ]; then
+            echo "::warning::dev build dispatched without sha_tag — no immutable anchor; overwriting :dev will accumulate dangling manifests."
+          fi
           cd digests
           shopt -s nullglob
           digest_files=(*)
@@ -208,11 +304,92 @@ jobs:
             refs+=("${image}@sha256:${digest}")
           done
           tags=(--tag "${image}:${tag}")
-          if [ "${tag}" != "latest" ]; then
+          # Move `:latest` only when explicitly enabled AND this isn't already
+          # the latest tag — dev passes also_latest=false so it never touches
+          # the stable `:latest`.
+          if [ "${ALSO_LATEST}" = "true" ] && [ "${tag}" != "latest" ]; then
             tags+=(--tag "${image}:latest")
+          fi
+          # Immutable per-commit anchor (dev: dev-<12sha>); keeps every build
+          # tagged so no untagged/dangling manifests pile up.
+          if [ -n "${SHA_TAG}" ]; then
+            tags+=(--tag "${image}:${SHA_TAG}")
           fi
           docker buildx imagetools create "${tags[@]}" "${refs[@]}"
           docker buildx imagetools inspect "${image}:${tag}"
+
+      # After a successful dev publish, prune old dev-<sha> tags on Docker Hub
+      # keeping only the newest few. Fail-soft: cleanup problems never fail the
+      # publish, but auth failures are surfaced as warnings so tags can't
+      # silently accumulate forever.
+      - name: Prune old dev-<sha> tags (Docker Hub)
+        if: ${{ inputs.tag == 'dev' }}
+        continue-on-error: true
+        env:
+          IMAGE: ${{ inputs.image }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          KEEP: "5"
+        run: |
+          set -uo pipefail
+          image="${IMAGE%%:*}"
+          # Only Docker Hub refs are prunable via hub.docker.com; skip others.
+          case "${image}" in
+            docker.io/*) image="${image#docker.io/}" ;;
+            *.*/*/*|*.*:*/*) echo "::warning::Non-Docker Hub ref '${IMAGE}', skipping dev tag prune."; exit 0 ;;
+          esac
+          ns="${image%%/*}"; repo="${image#*/}"
+          if [ "${ns}" = "${image}" ] || [ -z "${ns}" ] || [ -z "${repo}" ] || [ "${repo#*/}" != "${repo}" ]; then
+            echo "::warning::Image '${IMAGE}' is not a plain namespace/repo Docker Hub ref; skipping prune."
+            exit 0
+          fi
+
+          login_body="$(jq -nc --arg u "${DOCKERHUB_USERNAME}" --arg p "${DOCKERHUB_TOKEN}" '{username:$u,password:$p}')"
+          jwt="$(curl -fsS -H 'Content-Type: application/json' -X POST \
+            -d "${login_body}" \
+            https://hub.docker.com/v2/users/login/ 2>/dev/null | jq -r '.token // empty')"
+          if [ -z "${jwt}" ]; then
+            echo "::warning::Docker Hub login failed; skipping dev tag prune (tags not cleaned this run)."
+            exit 0
+          fi
+
+          # Collect all dev-<12-40 hex> tags across paginated results.
+          tmp="$(mktemp)"; : > "${tmp}"
+          url="https://hub.docker.com/v2/repositories/${ns}/${repo}/tags?page_size=100"
+          while [ -n "${url}" ] && [ "${url}" != "null" ]; do
+            resp="$(curl -fsS -H "Authorization: JWT ${jwt}" "${url}" 2>/dev/null)" || {
+              echo "::warning::Failed to list tags for ${ns}/${repo}; aborting prune."; exit 0; }
+            printf '%s' "${resp}" | jq -r \
+              '.results[] | select(.name|test("^dev-[0-9a-f]{12,40}$")) | [.name, .last_updated] | @tsv' >> "${tmp}"
+            url="$(printf '%s' "${resp}" | jq -r '.next // ""')"
+          done
+
+          # Newest KEEP by last_updated stay; the rest get deleted.
+          kept="$(sort -k2,2r "${tmp}" | awk -v k="${KEEP}" 'NR<=k{print $1}' | tr '\n' ' ')"
+          mapfile -t to_delete < <(sort -k2,2r "${tmp}" | awk -v k="${KEEP}" 'NR>k{print $1}')
+
+          deleted=(); failed=()
+          for t in "${to_delete[@]}"; do
+            enc="$(jq -rn --arg t "${t}" '$t|@uri')"
+            code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: JWT ${jwt}" -X DELETE \
+              "https://hub.docker.com/v2/repositories/${ns}/${repo}/tags/${enc}/")"
+            if [ "${code}" = "204" ] || [ "${code}" = "202" ] || [ "${code}" = "404" ]; then
+              deleted+=("${t}")
+            elif [ "${code}" = "401" ] || [ "${code}" = "403" ]; then
+              echo "::warning::Docker Hub delete unauthorized (HTTP ${code}) for ${t} — token likely lacks delete scope; dev tags will accumulate until fixed."
+              failed+=("${t}")
+            else
+              echo "::warning::Delete ${t} returned HTTP ${code}."
+              failed+=("${t}")
+            fi
+          done
+
+          {
+            echo "### dev-<sha> tag prune — ${ns}/${repo}"
+            echo "- kept (newest ${KEEP}): ${kept:-none}"
+            echo "- deleted: ${deleted[*]:-none}"
+            echo "- failed: ${failed[*]:-none}"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Docker logout
         if: always()
