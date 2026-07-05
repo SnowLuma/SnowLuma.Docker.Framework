@@ -36,6 +36,20 @@ mkdir -p \
   /app/.local/share \
   /etc/supervisor/conf.d
 
+ensure_machine_id() {
+  local persistent="${SNOWLUMA_DATA}/config/machine-id"
+
+  mkdir -p "$(dirname "$persistent")" || { echo "FATAL: cannot create machine-id persistent directory" >&2; exit 1; }
+
+  if [ ! -f "$persistent" ]; then
+    dbus-uuidgen > "$persistent" || { echo "FATAL: dbus-uuidgen failed to generate machine-id" >&2; exit 1; }
+  fi
+
+  ln -sf "$persistent" /etc/machine-id || { echo "FATAL: cannot symlink machine-id" >&2; exit 1; }
+}
+
+ensure_machine_id
+
 groupmod -o -g "${SNOWLUMA_GID}" snowluma
 usermod -o -u "${SNOWLUMA_UID}" -g "${SNOWLUMA_GID}" snowluma
 
