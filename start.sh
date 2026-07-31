@@ -197,7 +197,7 @@ XVFB_PID=$!
 wait_for_xvfb
 
 fluxbox &
-x11vnc -display "${DISPLAY}" -noxrecord -noxfixes -noxdamage -forever -rfbauth /root/.vnc/passwd &
+x11vnc -display "${DISPLAY}" -noxrecord -noxfixes -noxdamage -forever -threads -rfbauth /root/.vnc/passwd &
 X11VNC_PID=$!
 sleep 0.5
 if ! kill -0 "${X11VNC_PID}" 2>/dev/null; then
