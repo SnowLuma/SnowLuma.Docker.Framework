@@ -159,6 +159,12 @@ try {
 }
 
 runtimeConfig.webuiPort = webuiPort;
+// The application default is loopback-only. A container must bind its own
+// network namespace on all interfaces for an explicitly published host port
+// to work. Seed this once, but preserve every later WebUI/operator choice.
+if (typeof runtimeConfig.webuiHost !== 'string' || !runtimeConfig.webuiHost.trim()) {
+  runtimeConfig.webuiHost = '0.0.0.0';
+}
 fs.writeFileSync(runtimeConfigPath, `${JSON.stringify(runtimeConfig, null, 2)}\n`, 'utf8');
 NODE
 # Node.js block above ran as root, so runtime.json is owned by root.
