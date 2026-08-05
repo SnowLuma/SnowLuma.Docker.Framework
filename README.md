@@ -80,6 +80,7 @@ docker run -d \
   --cap-add=SYS_PTRACE \
   --security-opt seccomp=unconfined \
   -e VNC_PASSWD=vncpasswd \
+  -e SNOWLUMA_WEBUI_HOST=0.0.0.0 \
   -e SNOWLUMA_WEBUI_PORT=5099 \
   -e SNOWLUMA_QQ_FLAGS="--disable-gpu --disable-software-rasterizer --disable-gpu-compositing" \
   -e TZ=Asia/Shanghai \
@@ -141,7 +142,7 @@ http://IP:5099/
 ```
 
 SnowLuma 的配置和 OneBot 配置默认持久化在 `/app/snowluma-data/config`。
-容器首次创建配置时会显式将 WebUI 绑定地址设为 `0.0.0.0`，以便已发布的 `5099` 端口可访问；之后在 WebUI 中保存的绑定地址不会被容器启动脚本覆盖。
+官方 Compose 和 `scripts/run.sh` 默认传入 `SNOWLUMA_WEBUI_HOST=0.0.0.0`，以便已发布的 `5099` 端口可访问。环境变量优先于 WebUI 中保存的地址；如需限制为容器本机或绑定其他地址，请显式修改该变量后重建容器。
 
 ## 自动注入
 
