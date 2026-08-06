@@ -23,9 +23,9 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${NAME}"; then
   fi
 fi
 
-docker volume create snowluma-data >/dev/null
-docker volume create snowluma-qq-config >/dev/null
-docker volume create snowluma-qq-data >/dev/null
+docker volume create qq-gateway-data >/dev/null
+docker volume create qq-client-config >/dev/null
+docker volume create qq-client-data >/dev/null
 
 docker run -d \
   --name "${NAME}" \
@@ -48,9 +48,9 @@ docker run -d \
   -p "${SNOWLUMA_WEBUI_HOST_PORT}:${SNOWLUMA_WEBUI_PORT}" \
   -p "${ONEBOT_HTTP_PORT:-3000}:3000" \
   -p "${ONEBOT_WS_PORT:-3001}:3001" \
-  -v snowluma-data:/app/snowluma-data \
-  -v snowluma-qq-config:/app/.config \
-  -v snowluma-qq-data:/app/.local/share \
+  -v qq-gateway-data:/app/data \
+  -v qq-client-config:/app/.config \
+  -v qq-client-data:/app/.local/share \
   "${IMAGE}"
 
 echo "Started ${NAME}"

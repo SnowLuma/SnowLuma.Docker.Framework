@@ -11,8 +11,8 @@ ARG QQ_BASE_URL=https://qqdl.gtimg.cn/qqfile/QQNT/9.9.32/beta
 ENV DEBIAN_FRONTEND=noninteractive \
     VNC_PASSWD=vncpasswd \
     TZ=Asia/Shanghai \
-    SNOWLUMA_HOME=/app/snowluma \
-    SNOWLUMA_DATA=/app/snowluma-data \
+    SNOWLUMA_HOME=/app/runtime \
+    SNOWLUMA_DATA=/app/data \
     SNOWLUMA_WEBUI_PORT=5099 \
     SNOWLUMA_UID=1000 \
     SNOWLUMA_GID=1000 \
@@ -99,14 +99,18 @@ RUN chmod +x /root/start.sh && \
     test -f "${SNOWLUMA_HOME}/native/snowluma-linux-${native_arch}.node" && \
     test -f "${SNOWLUMA_HOME}/native/snowluma-linux-${native_arch}.so" && \
     test -f "${SNOWLUMA_HOME}/native/websocket-linux-${native_arch}.node" && \
+    forbidden_dir="$(find "${SNOWLUMA_HOME}" -type d -iname '*snowluma*' -print -quit)" && \
+    if [ -n "${forbidden_dir}" ]; then \
+      echo "Framework archive contains a forbidden directory: ${forbidden_dir}" >&2; exit 1; \
+    fi && \
     setcap cap_sys_ptrace+ep /usr/local/bin/node && \
     rm -f /tmp/SnowLuma.Framework.tar.gz && \
     chown -R snowluma:snowluma /app /opt/QQ
 
-WORKDIR /app/snowluma-data
+WORKDIR /app/data
 
 EXPOSE 5900 6081 5099 3000 3001
 
-VOLUME ["/app/snowluma-data", "/app/.config", "/app/.local/share"]
+VOLUME ["/app/data", "/app/.config", "/app/.local/share"]
 
 CMD ["/root/start.sh"]

@@ -89,9 +89,9 @@ docker run -d \
   -p 5099:5099 \
   -p 3000:3000 \
   -p 3001:3001 \
-  -v snowluma-data:/app/snowluma-data \
-  -v snowluma-qq-config:/app/.config \
-  -v snowluma-qq-data:/app/.local/share \
+  -v qq-gateway-data:/app/data \
+  -v qq-client-config:/app/.config \
+  -v qq-client-data:/app/.local/share \
   motricseven7/snowluma:latest
 ```
 
@@ -127,7 +127,7 @@ docker logs snowluma 2>&1 | grep -E "临时密码|initial credentials" | tail -n
 docker logs snowluma 2>&1 | sed -nE 's/.*(临时密码: |initial credentials: user=admin password=)([^[:space:]]+).*/\2/p' | tail -n 1
 ```
 
-如果启动时自定义了容器名，请把命令里的 `snowluma` 替换成实际容器名。临时密码只会在全新的 `snowluma-data` 卷首次启动时输出一次；后续重启或复用旧卷时不会再生成新的明文密码。
+如果启动时自定义了容器名，请把命令里的 `snowluma` 替换成实际容器名。临时密码只会在全新的 `qq-gateway-data` 卷首次启动时输出一次；后续重启或复用旧卷时不会再生成新的明文密码。
 
 noVNC 地址：
 
@@ -141,7 +141,7 @@ SnowLuma WebUI 地址：
 http://IP:5099/
 ```
 
-SnowLuma 的配置和 OneBot 配置默认持久化在 `/app/snowluma-data/config`。
+SnowLuma 的配置和 OneBot 配置默认持久化在 `/app/data/config`。
 官方 Compose 和 `scripts/run.sh` 默认传入 `SNOWLUMA_WEBUI_HOST=0.0.0.0`，以便已发布的 `5099` 端口可访问。环境变量优先于 WebUI 中保存的地址；如需限制为容器本机或绑定其他地址，请显式修改该变量后重建容器。
 
 ## 自动注入
@@ -156,7 +156,7 @@ SnowLuma 的配置和 OneBot 配置默认持久化在 `/app/snowluma-data/config
 docker run -e SNOWLUMA_HOOK_AUTOLOAD=0 ... motricseven7/snowluma:latest
 ```
 
-或在 `docker-compose.yml` 里设 `SNOWLUMA_HOOK_AUTOLOAD: 0`，再或者在持久卷 `/app/snowluma-data/config/runtime.json` 里设 `"hookAutoLoad": false`。环境变量优先于 JSON 配置。
+或在 `docker-compose.yml` 里设 `SNOWLUMA_HOOK_AUTOLOAD: 0`，再或者在持久卷 `/app/data/config/runtime.json` 里设 `"hookAutoLoad": false`。环境变量优先于 JSON 配置。
 
 ## 多开 QQ
 
@@ -168,18 +168,23 @@ services:
     environment:
       SNOWLUMA_EXTRA_QQ_HOMES: /app/qq-acct2,/app/qq-acct3
     volumes:
-      - snowluma-data:/app/snowluma-data
-      - snowluma-qq-config:/app/.config
-      - snowluma-qq-data:/app/.local/share
-      - snowluma-qq2:/app/qq-acct2
-      - snowluma-qq3:/app/qq-acct3
+      - qq-gateway-data:/app/data
+      - qq-client-config:/app/.config
+      - qq-client-data:/app/.local/share
+      - qq-client-account-2:/app/qq-acct2
+      - qq-client-account-3:/app/qq-acct3
 
 volumes:
-  snowluma-data:
-  snowluma-qq-config:
-  snowluma-qq-data:
-  snowluma-qq2:
-  snowluma-qq3:
+  qq-gateway-data:
+    name: qq-gateway-data
+  qq-client-config:
+    name: qq-client-config
+  qq-client-data:
+    name: qq-client-data
+  qq-client-account-2:
+    name: qq-client-account-2
+  qq-client-account-3:
+    name: qq-client-account-3
 ```
 
 容器启动时会为每个额外 `HOME` 生成一个 supervisor program，使用 `snowluma` 用户、同一个 `DISPLAY` 和同一组 `SNOWLUMA_QQ_FLAGS` 启动 QQ。这样 SnowLuma 进程和所有 QQ 进程同用户运行，hook 自动注入不会遇到手动 `docker exec` 误用 root 带来的权限问题。

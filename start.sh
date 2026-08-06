@@ -4,8 +4,8 @@ set -euo pipefail
 : "${VNC_PASSWD:=vncpasswd}"
 : "${SNOWLUMA_UID:=1000}"
 : "${SNOWLUMA_GID:=1000}"
-: "${SNOWLUMA_HOME:=/app/snowluma}"
-: "${SNOWLUMA_DATA:=/app/snowluma-data}"
+: "${SNOWLUMA_HOME:=/app/runtime}"
+: "${SNOWLUMA_DATA:=/app/data}"
 : "${SNOWLUMA_WEBUI_PORT:=5099}"
 : "${SNOWLUMA_LOG_LEVEL:=info}"
 : "${SNOWLUMA_SCREEN:=1920x1080x24}"
@@ -14,7 +14,7 @@ set -euo pipefail
 : "${SNOWLUMA_QQ_FLAGS:=--disable-gpu --disable-software-rasterizer --disable-gpu-compositing}"
 
 export DISPLAY="${DISPLAY:-:1}"
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/snowluma-${SNOWLUMA_UID}}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-${SNOWLUMA_UID}}"
 export SNOWLUMA_HOOK_RUNTIME_DIR="${SNOWLUMA_HOOK_RUNTIME_DIR:-${XDG_RUNTIME_DIR}}"
 export SNOWLUMA_LOG_LEVEL SNOWLUMA_HOOK_AUTOLOAD SNOWLUMA_EXTRA_QQ_HOMES SNOWLUMA_QQ_FLAGS
 
@@ -141,7 +141,7 @@ node <<'NODE'
 const fs = require('fs');
 const path = require('path');
 
-const dataDir = process.env.SNOWLUMA_DATA || '/app/snowluma-data';
+const dataDir = process.env.SNOWLUMA_DATA || '/app/data';
 const configDir = path.join(dataDir, 'config');
 const runtimeConfigPath = path.join(configDir, 'runtime.json');
 const requestedPort = Number(process.env.SNOWLUMA_WEBUI_PORT || 5099);
