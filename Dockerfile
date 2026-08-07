@@ -23,48 +23,74 @@ ENV DEBIAN_FRONTEND=noninteractive \
     SNOWLUMA_QQ_FLAGS="--disable-gpu --disable-software-rasterizer --disable-gpu-compositing" \
     DISPLAY=:1
 
-RUN rm -f /etc/apt/apt.conf.d/docker-clean; \
-    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
-
+# Keep independent runtime groups in separate layers. Docker pulls up to three
+# layers concurrently by default, so one monolithic desktop layer becomes a
+# download bottleneck even when the total image size is unchanged.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
     apt-get update && apt-get install -y --no-install-recommends \
       aria2 \
       ca-certificates \
       curl \
       dbus-user-session \
-      ffmpeg \
-      fluxbox \
-      fonts-wqy-zenhei \
       git \
       gnutls-bin \
       iproute2 \
-      libasound2 \
-      libatspi2.0-0 \
       libcap2-bin \
-      libgbm1 \
-      libgtk-3-0 \
-      libnotify4 \
-      libnss3 \
-      libsecret-1-0 \
-      openbox \
       procps \
       supervisor \
       tzdata \
       unzip \
-      x11vnc \
-      xdg-utils \
-      xorg \
-      xvfb && \
+      xdg-utils && \
     echo "${TZ}" > /etc/timezone && \
     ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime && \
-    cd /opt && git clone --depth=1 https://github.com/novnc/noVNC.git && \
-    cd /opt/noVNC/utils && git clone --depth=1 https://github.com/novnc/websockify.git && \
-    cp /opt/noVNC/vnc.html /opt/noVNC/index.html && \
-    apt-get autoremove -y && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    setcap cap_sys_ptrace+ep /usr/local/bin/node && \
+    groupadd --gid 1001 snowluma && \
+    useradd --no-log-init --uid 1001 --gid 1001 --home-dir /app --shell /bin/bash snowluma && \
+    install -d -o snowluma -g snowluma \
+      "${SNOWLUMA_HOME}" \
+      "${SNOWLUMA_DATA}" \
+      /app/.cache \
+      /app/.config \
+      /app/.local/share && \
+    mkdir -p /etc/supervisor/conf.d
 
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg \
+      fonts-wqy-zenhei
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+      libasound2 \
+      libatspi2.0-0 \
+      libgbm1 \
+      libgtk-3-0 \
+      libnotify4 \
+      libnss3 \
+      libsecret-1-0
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+      fluxbox \
+      openbox \
+      x11vnc \
+      xorg \
+      xvfb
+
+RUN set -eux; \
+    git clone --depth=1 https://github.com/novnc/noVNC.git /opt/noVNC; \
+    git clone --depth=1 https://github.com/novnc/websockify.git /opt/noVNC/utils/websockify; \
+    cp /opt/noVNC/vnc.html /opt/noVNC/index.html; \
+    rm -rf /tmp/* /var/tmp/*
+
+# Keep the packaged application tree in its install layer. A later recursive
+# chown would copy the whole tree into a second layer.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     set -eux; \
@@ -73,23 +99,19 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       amd64|arm64) ;; \
       *) echo "Unsupported Debian architecture: ${qq_arch}" >&2; exit 1 ;; \
     esac; \
-    apt-get update && \
-    aria2c --check-certificate=false -x16 -s16 -o /tmp/linuxqq.deb "${QQ_BASE_URL}/${QQ_CHANNEL}/linuxqq_${QQ_VERSION}_${qq_arch}.deb" && \
-    (dpkg -i /tmp/linuxqq.deb || apt-get -f install -y --no-install-recommends) && \
-    rm -f /tmp/linuxqq.deb && \
-    chmod 777 /opt/QQ && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get update; \
+    aria2c --check-certificate=false -x16 -s16 -o /tmp/linuxqq.deb "${QQ_BASE_URL}/${QQ_CHANNEL}/linuxqq_${QQ_VERSION}_${qq_arch}.deb"; \
+    dpkg -i /tmp/linuxqq.deb || apt-get -f install -y --no-install-recommends; \
+    rm -f /tmp/linuxqq.deb; \
+    chmod 777 /opt/QQ
 
-COPY SnowLuma.Framework.tar.gz /tmp/SnowLuma.Framework.tar.gz
-COPY supervisord.conf /etc/supervisord.conf
-COPY start.sh /root/start.sh
-
-RUN chmod +x /root/start.sh && \
-    groupadd --gid 1001 snowluma && \
-    useradd --no-log-init --uid 1001 --gid 1001 --home-dir /app --shell /bin/bash snowluma && \
-    mkdir -p "${SNOWLUMA_HOME}" "${SNOWLUMA_DATA}" /app/.cache /app/.config /app/.local/share /etc/supervisor/conf.d && \
-    tar -xzf /tmp/SnowLuma.Framework.tar.gz -C "${SNOWLUMA_HOME}" && \
+RUN --mount=type=bind,source=SnowLuma.Framework.tar.gz,target=/tmp/framework.tar.gz,readonly \
+    --mount=type=bind,source=supervisord.conf,target=/tmp/supervisord.conf,readonly \
+    --mount=type=bind,source=start.sh,target=/tmp/start.sh,readonly \
+    install -m 644 /tmp/supervisord.conf /etc/supervisord.conf && \
+    install -m 755 /tmp/start.sh /root/start.sh && \
+    tar -xzf /tmp/framework.tar.gz -C "${SNOWLUMA_HOME}" && \
+    chown -R snowluma:snowluma "${SNOWLUMA_HOME}" && \
     case "$(dpkg --print-architecture)" in \
       amd64) native_arch="x64" ;; \
       arm64) native_arch="arm64" ;; \
@@ -102,10 +124,7 @@ RUN chmod +x /root/start.sh && \
     forbidden_dir="$(find "${SNOWLUMA_HOME}" -type d -iname '*snowluma*' -print -quit)" && \
     if [ -n "${forbidden_dir}" ]; then \
       echo "Framework archive contains a forbidden directory: ${forbidden_dir}" >&2; exit 1; \
-    fi && \
-    setcap cap_sys_ptrace+ep /usr/local/bin/node && \
-    rm -f /tmp/SnowLuma.Framework.tar.gz && \
-    chown -R snowluma:snowluma /app /opt/QQ
+    fi
 
 WORKDIR /app/data
 

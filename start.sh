@@ -53,9 +53,15 @@ ensure_machine_id
 groupmod -o -g "${SNOWLUMA_GID}" snowluma
 usermod -o -u "${SNOWLUMA_UID}" -g "${SNOWLUMA_GID}" snowluma
 
+# Only persistent state follows the configurable account. Recursively changing
+# ownership of bundled application trees would copy hundreds of megabytes into
+# the container writable layer on every first start.
+chown "${SNOWLUMA_UID}:${SNOWLUMA_GID}" /app
 chown -R "${SNOWLUMA_UID}:${SNOWLUMA_GID}" \
-  /app \
-  /opt/QQ \
+  "${SNOWLUMA_DATA}" \
+  /app/.cache \
+  /app/.config \
+  /app/.local/share \
   "${XDG_RUNTIME_DIR}"
 chmod 700 "${XDG_RUNTIME_DIR}"
 
