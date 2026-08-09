@@ -36,18 +36,78 @@ mkdir -p \
   /app/.local/share \
   /etc/supervisor/conf.d
 
+# Before commit 93e185d the framework stored SnowLuma state under
+# /app/snowluma-data. Users upgrading an existing deployment keep their old
+# bind mount / named volume at that path, so the new /app/data default would
+# silently create a fresh machine-id and force QQ to re-login. Copy the legacy
+# data forward once (machine-id first) so the device identity -- and therefore
+# the persistent auto-login -- survives an image upgrade.
+migrate_legacy_data() {
+  local legacy="${SNOWLUMA_LEGACY_DATA:-/app/snowluma-data}"
+  local target="${SNOWLUMA_DATA}/config"
+
+  [ -d "${legacy}/config" ] || return 0
+  [ "${legacy}/config" = "${target}" ] && return 0
+  [ -e "${target}/machine-id" ] && return 0
+
+  echo "Migrating legacy SnowLuma data from ${legacy}/config to ${target} ..."
+  mkdir -p "${target}"
+
+  # Copy machine-id first so a partial migration still keeps QQ's identity.
+  if [ -f "${legacy}/config/machine-id" ]; then
+    cp -a "${legacy}/config/machine-id" "${target}/machine-id"
+  fi
+
+  # Then the rest of the SnowLuma config (runtime.json, webui.json, ...).
+  cp -a "${legacy}/config/." "${target}/" || echo "WARN: partial legacy config migration (ignored)" >&2
+}
+
 ensure_machine_id() {
   local persistent="${SNOWLUMA_DATA}/config/machine-id"
 
   mkdir -p "$(dirname "$persistent")" || { echo "FATAL: cannot create machine-id persistent directory" >&2; exit 1; }
 
-  if [ ! -f "$persistent" ]; then
-    dbus-uuidgen > "$persistent" || { echo "FATAL: dbus-uuidgen failed to generate machine-id" >&2; exit 1; }
+  # Two cases must both work:
+  #   - no machine-id yet            -> generate a fresh one and persist it;
+  #   - a persistent id already      -> keep it (it may have just been migrated
+  #     from a legacy data dir) and link /etc/machine-id to it, so QQ keeps its
+  #     device identity and the auto-login token stays valid.
+  # A file that is empty or malformed is treated as absent and regenerated.
+  if [ -s "$persistent" ] && grep -Eq '^[0-9a-fA-F]{32}$' "$persistent"; then
+    :
+  elif [ -f "$persistent" ]; then
+    echo "WARN: existing machine-id is empty or malformed; regenerating" >&2
+    rm -f "$persistent"
   fi
 
-  ln -sf "$persistent" /etc/machine-id || { echo "FATAL: cannot symlink machine-id" >&2; exit 1; }
+  if [ ! -f "$persistent" ]; then
+    if ! dbus-uuidgen > "$persistent" 2>/dev/null; then
+      echo "WARN: dbus-uuidgen failed; falling back to /proc/sys/kernel/random/uuid" >&2
+      if ! cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' > "$persistent"; then
+        echo "WARN: could not generate a machine-id; QQ login may not survive a restart" >&2
+        return 0
+      fi
+    fi
+    # Final guard: never link an empty file.
+    if [ ! -s "$persistent" ]; then
+      echo "WARN: generated machine-id is empty; QQ login may not survive a restart" >&2
+      return 0
+    fi
+  fi
+
+  # Best-effort: /etc/machine-id may be a host-provided read-only mount (or
+  # otherwise busy). In that case it is authoritative -- never block container
+  # startup over a symlink (see SnowLuma.Docker.Framework issue #11).
+  if ! ln -sf "$persistent" /etc/machine-id 2>/dev/null; then
+    if [ -r /etc/machine-id ]; then
+      echo "WARN: /etc/machine-id is already provided by the host; keeping it" >&2
+    else
+      echo "WARN: cannot symlink /etc/machine-id to ${persistent} (ignored)" >&2
+    fi
+  fi
 }
 
+migrate_legacy_data
 ensure_machine_id
 
 groupmod -o -g "${SNOWLUMA_GID}" snowluma
