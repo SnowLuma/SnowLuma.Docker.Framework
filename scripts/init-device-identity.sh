@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 IMAGE="${IMAGE:-motricseven7/snowluma:latest}"
 
+docker pull "${IMAGE}" >/dev/null 2>&1 || true
 docker volume create qq-gateway-data >/dev/null 2>&1 || true
 
 DEVICE_IDENTITY_VOL=qq-gateway-data

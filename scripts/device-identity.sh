@@ -9,6 +9,11 @@
 #   2. persisted value:   /app/data/config/device-identity in the data volume;
 #   3. otherwise:         generate once, persist to the volume, and reuse.
 #
+# The volume is the source of truth: the resolved identity is written back
+# whenever it differs from what the volume holds (so operator overrides also
+# become the deployment identity). A failed persist is fatal, otherwise the next
+# recreate would regenerate a different identity and QQ would re-scan.
+#
 # Usage (must run before the container is created, since MAC is fixed at
 # container creation time):
 #   DEVICE_IDENTITY_VOL=qq-gateway-data DEVICE_IDENTITY_IMAGE=<image> \
@@ -23,22 +28,18 @@ resolve_device_identity() {
   SNOWLUMA_HOSTNAME="${SNOWLUMA_HOSTNAME:-}"
   SNOWLUMA_MAC_ADDRESS="${SNOWLUMA_MAC_ADDRESS:-}"
 
-  if [ -z "${SNOWLUMA_HOSTNAME}" ] || [ -z "${SNOWLUMA_MAC_ADDRESS}" ]; then
-    local stored=""
-    stored=$(docker run --rm --entrypoint sh -v "${vol}:/app/data" "${image}" -c 'cat /app/data/config/device-identity 2>/dev/null || true' 2>/dev/null || true)
-    if [ -z "${SNOWLUMA_HOSTNAME}" ]; then
-      SNOWLUMA_HOSTNAME=$(printf '%s\n' "${stored}" | sed -n 's/^hostname=//p' | head -n 1)
-    fi
-    if [ -z "${SNOWLUMA_MAC_ADDRESS}" ]; then
-      SNOWLUMA_MAC_ADDRESS=$(printf '%s\n' "${stored}" | sed -n 's/^mac=//p' | head -n 1)
-    fi
-  fi
+  local stored="" stored_hostname="" stored_mac=""
+  stored=$(docker run --rm --entrypoint sh -v "${vol}:/app/data" "${image}" -c 'cat /app/data/config/device-identity 2>/dev/null || true' 2>/dev/null || true)
+  stored_hostname=$(printf '%s\n' "${stored}" | sed -n 's/^hostname=//p' | head -n 1)
+  stored_mac=$(printf '%s\n' "${stored}" | sed -n 's/^mac=//p' | head -n 1)
 
-  local generated=0
+  # operator env wins; else persisted; else generate.
+  [ -n "${SNOWLUMA_HOSTNAME}" ] || SNOWLUMA_HOSTNAME="${stored_hostname}"
+  [ -n "${SNOWLUMA_MAC_ADDRESS}" ] || SNOWLUMA_MAC_ADDRESS="${stored_mac}"
+
   if [ -z "${SNOWLUMA_HOSTNAME}" ]; then
     SNOWLUMA_HOSTNAME="snowluma-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
     [ -n "${SNOWLUMA_HOSTNAME}" ] || SNOWLUMA_HOSTNAME="snowluma-$$"
-    generated=1
   fi
   if [ -z "${SNOWLUMA_MAC_ADDRESS}" ]; then
     local mac=""
@@ -54,12 +55,14 @@ resolve_device_identity() {
       [ -n "${h}" ] || h="0000000000"
       SNOWLUMA_MAC_ADDRESS="02:$(printf '%s' "${h}" | sed 's/\(..\)/\1:/g; s/:$//')"
     fi
-    generated=1
   fi
 
-  if [ "${generated}" = "1" ]; then
-    docker run --rm --entrypoint sh -v "${vol}:/app/data" "${image}" \
+  if [ "${SNOWLUMA_HOSTNAME}" != "${stored_hostname}" ] || [ "${SNOWLUMA_MAC_ADDRESS}" != "${stored_mac}" ]; then
+    if ! docker run --rm --entrypoint sh -v "${vol}:/app/data" "${image}" \
       -c 'mkdir -p /app/data/config && printf "hostname=%s\nmac=%s\n" "$1" "$2" > /app/data/config/device-identity' \
-      _ "${SNOWLUMA_HOSTNAME}" "${SNOWLUMA_MAC_ADDRESS}" >/dev/null 2>&1 || true
+      _ "${SNOWLUMA_HOSTNAME}" "${SNOWLUMA_MAC_ADDRESS}"; then
+      echo "ERROR: failed to persist device identity to ${vol} (/app/data/config/device-identity); a future recreate would change QQ's device fingerprint." >&2
+      return 1
+    fi
   fi
 }

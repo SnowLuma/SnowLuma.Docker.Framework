@@ -2,8 +2,8 @@ services:
   snowluma:
     image: ${SNOWLUMA_IMAGE:-motricseven7/snowluma:latest}
     container_name: ${SNOWLUMA_CONTAINER:-snowluma}
-    hostname: ${SNOWLUMA_HOSTNAME}
-    mac_address: ${SNOWLUMA_MAC_ADDRESS}
+    hostname: ${SNOWLUMA_HOSTNAME:?Set SNOWLUMA_HOSTNAME (run scripts/init-device-identity.sh)}
+    mac_address: ${SNOWLUMA_MAC_ADDRESS:?Set SNOWLUMA_MAC_ADDRESS (run scripts/init-device-identity.sh)}
     restart: unless-stopped
     shm_size: 1gb
     cap_add:
