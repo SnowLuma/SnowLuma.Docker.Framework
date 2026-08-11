@@ -9,6 +9,8 @@ NAME="${NAME:-snowluma}"
 SNOWLUMA_WEBUI_HOST="${SNOWLUMA_WEBUI_HOST:-0.0.0.0}"
 SNOWLUMA_WEBUI_PORT="${SNOWLUMA_WEBUI_PORT:-5099}"
 SNOWLUMA_WEBUI_HOST_PORT="${SNOWLUMA_WEBUI_HOST_PORT:-5099}"
+SNOWLUMA_HOSTNAME="${SNOWLUMA_HOSTNAME:-snowluma}"
+SNOWLUMA_MAC_ADDRESS="${SNOWLUMA_MAC_ADDRESS:-02:42:ac:11:00:01}"
 
 if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
   IMAGE="${IMAGE}" "${SCRIPT_DIR}/build-image.sh"
@@ -29,6 +31,8 @@ docker volume create qq-client-data >/dev/null
 
 docker run -d \
   --name "${NAME}" \
+  --hostname "${SNOWLUMA_HOSTNAME}" \
+  --mac-address "${SNOWLUMA_MAC_ADDRESS}" \
   --restart unless-stopped \
   --shm-size=1g \
   --cap-add=SYS_PTRACE \

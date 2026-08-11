@@ -2,6 +2,8 @@ services:
   snowluma:
     image: ${SNOWLUMA_IMAGE:-motricseven7/snowluma:latest}
     container_name: ${SNOWLUMA_CONTAINER:-snowluma}
+    hostname: ${SNOWLUMA_HOSTNAME:-snowluma}
+    mac_address: ${SNOWLUMA_MAC_ADDRESS:-02:42:ac:11:00:01}
     restart: unless-stopped
     shm_size: 1gb
     cap_add:
