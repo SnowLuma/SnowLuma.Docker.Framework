@@ -9,8 +9,8 @@ NAME="${NAME:-snowluma}"
 SNOWLUMA_WEBUI_HOST="${SNOWLUMA_WEBUI_HOST:-0.0.0.0}"
 SNOWLUMA_WEBUI_PORT="${SNOWLUMA_WEBUI_PORT:-5099}"
 SNOWLUMA_WEBUI_HOST_PORT="${SNOWLUMA_WEBUI_HOST_PORT:-5099}"
-SNOWLUMA_HOSTNAME="${SNOWLUMA_HOSTNAME:-snowluma}"
-SNOWLUMA_MAC_ADDRESS="${SNOWLUMA_MAC_ADDRESS:-02:42:ac:11:00:01}"
+SNOWLUMA_HOSTNAME="${SNOWLUMA_HOSTNAME:-}"
+SNOWLUMA_MAC_ADDRESS="${SNOWLUMA_MAC_ADDRESS:-}"
 
 if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
   IMAGE="${IMAGE}" "${SCRIPT_DIR}/build-image.sh"
@@ -26,6 +26,49 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${NAME}"; then
 fi
 
 docker volume create qq-gateway-data >/dev/null
+# Stable per-deployment device identity (hostname + MAC) backed by the data
+# volume, unless the operator overrides via SNOWLUMA_HOSTNAME /
+# SNOWLUMA_MAC_ADDRESS. QQ treats hostname + NIC MAC as part of the device
+# fingerprint, so a fixed value keeps auto-login across container recreates.
+# Generating once and persisting to the volume keeps every deployment unique
+# without hardcoding a shared fingerprint (same philosophy as machine-id).
+resolve_device_identity() {
+  local vol=qq-gateway-data
+  local file=/app/data/config/device-identity
+
+  if [ -z "${SNOWLUMA_HOSTNAME}" ] || [ -z "${SNOWLUMA_MAC_ADDRESS}" ]; then
+    local stored=""
+    stored=$(docker run --rm --entrypoint sh -v "${vol}:/app/data" "${IMAGE}" -c 'cat /app/data/config/device-identity 2>/dev/null || true' 2>/dev/null || true)
+    if [ -z "${SNOWLUMA_HOSTNAME}" ]; then
+      SNOWLUMA_HOSTNAME=$(printf '%s\n' "${stored}" | sed -n 's/^hostname=//p' | head -n 1)
+    fi
+    if [ -z "${SNOWLUMA_MAC_ADDRESS}" ]; then
+      SNOWLUMA_MAC_ADDRESS=$(printf '%s\n' "${stored}" | sed -n 's/^mac=//p' | head -n 1)
+    fi
+  fi
+
+  local generated=0
+  if [ -z "${SNOWLUMA_HOSTNAME}" ]; then
+    SNOWLUMA_HOSTNAME="snowluma-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    [ -n "${SNOWLUMA_HOSTNAME}" ] || SNOWLUMA_HOSTNAME="snowluma-$$"
+    generated=1
+  fi
+  if [ -z "${SNOWLUMA_MAC_ADDRESS}" ]; then
+    local mac=""
+    mac=$(od -An -N5 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+    if [ -n "${mac}" ]; then
+      SNOWLUMA_MAC_ADDRESS="02:$(printf '%s' "${mac}" | sed 's/\(..\)/\1:/g; s/:$//')"
+    fi
+    [ -n "${SNOWLUMA_MAC_ADDRESS}" ] || SNOWLUMA_MAC_ADDRESS="02:42:ac:11:00:01"
+    generated=1
+  fi
+
+  if [ "${generated}" = "1" ]; then
+    docker run --rm --entrypoint sh -v "${vol}:/app/data" "${IMAGE}" -c 'mkdir -p /app/data/config && printf "hostname=%s\nmac=%s\n" "$1" "$2" > /app/data/config/device-identity' _ "${SNOWLUMA_HOSTNAME}" "${SNOWLUMA_MAC_ADDRESS}" >/dev/null 2>&1 || true
+  fi
+}
+
+resolve_device_identity
 docker volume create qq-client-config >/dev/null
 docker volume create qq-client-data >/dev/null
 
