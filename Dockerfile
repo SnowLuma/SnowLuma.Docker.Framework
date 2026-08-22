@@ -4,9 +4,12 @@ ARG NODE_VERSION=22
 FROM node:${NODE_VERSION}-bookworm-slim
 
 ARG TARGETARCH
-ARG QQ_VERSION=3.2.31-51102
-ARG QQ_CHANNEL=c390e792
-ARG QQ_BASE_URL=https://qqdl.gtimg.cn/qqfile/QQNT/9.9.32/beta
+ARG QQ_VERSION=3.2.32_260812
+ARG QQ_CHANNEL=3f89efc5
+ARG QQ_BASE_URL=https://qqdl.gtimg.cn/qqfile/QQNT/9.9.33/release
+ARG QQ_MIRROR_URL=https://github.com/Rodert/qq-versions/releases/download/qq-packages-20260813-1d08f1d4
+ARG QQ_AMD64_SHA256=d085dd89397225061eb9f194308f688129818ed445777e97a4a0a16e13d7b0e8
+ARG QQ_ARM64_SHA256=8796ccfd66acc025ef18db37185532d40bc8c58921e17da6d28c295acbcf8f92
 
 ENV DEBIAN_FRONTEND=noninteractive \
     VNC_PASSWD=vncpasswd \
@@ -91,16 +94,39 @@ RUN set -eux; \
 
 # Keep the packaged application tree in its install layer. A later recursive
 # chown would copy the whole tree into a second layer.
+# Official Linux QQ first; a pinned GitHub copy of the same files is only used
+# when the CDN object is missing. Never follow a floating latest tag.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     set -eux; \
     qq_arch="$(dpkg --print-architecture)"; \
     case "${qq_arch}" in \
-      amd64|arm64) ;; \
+      amd64) qq_sha="${QQ_AMD64_SHA256}" ;; \
+      arm64) qq_sha="${QQ_ARM64_SHA256}" ;; \
       *) echo "Unsupported Debian architecture: ${qq_arch}" >&2; exit 1 ;; \
     esac; \
+    qq_deb="QQ_${QQ_VERSION}_${qq_arch}_01.deb"; \
     apt-get update; \
-    aria2c --check-certificate=false -x16 -s16 -o /tmp/linuxqq.deb "${QQ_BASE_URL}/${QQ_CHANNEL}/linuxqq_${QQ_VERSION}_${qq_arch}.deb"; \
+    download_ok=0; \
+    for qq_url in \
+      "${QQ_BASE_URL}/${QQ_CHANNEL}/${qq_deb}" \
+      "${QQ_MIRROR_URL}/${qq_deb}"; do \
+      rm -f /tmp/linuxqq.deb; \
+      case "${qq_url}" in \
+        *github.com*) \
+          if curl -fL --retry 3 --retry-delay 2 -A 'SnowLuma-Docker' \
+              -o /tmp/linuxqq.deb "${qq_url}"; then :; else continue; fi ;; \
+        *) \
+          if aria2c --check-certificate=false --allow-overwrite=true \
+              --auto-file-renaming=false --max-tries=3 --retry-wait=2 \
+              -x16 -s16 -o /tmp/linuxqq.deb "${qq_url}"; then :; else continue; fi ;; \
+      esac; \
+      if echo "${qq_sha}  /tmp/linuxqq.deb" | sha256sum -c -; then \
+        download_ok=1; \
+        break; \
+      fi; \
+    done; \
+    [ "${download_ok}" = 1 ]; \
     dpkg -i /tmp/linuxqq.deb || apt-get -f install -y --no-install-recommends; \
     rm -f /tmp/linuxqq.deb; \
     chmod 777 /opt/QQ

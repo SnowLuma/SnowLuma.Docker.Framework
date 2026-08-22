@@ -7,6 +7,8 @@ SnowLuma 的 Linux Docker 运行框架，结构参考 `NapCat.Docker.Framework`�
 - [x] Linux/Amd64
 - [x] Linux/Arm64
 
+镜像内置官方 Linux QQ 3.2.32。
+
 ## 端口
 
 - `5900`: VNC
