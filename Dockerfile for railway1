@@ -1,2 +1,0 @@
-COPY SnowLuma.Framework.tar.gz /tmp/framework.tar.gz
-RUN tar -xzf /tmp/framework.tar.gz ...  # 然后执行你的解压/安装命令
