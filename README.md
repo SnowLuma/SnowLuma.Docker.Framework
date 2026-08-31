@@ -79,6 +79,7 @@ docker run -d \
   --name snowluma \
   --restart unless-stopped \
   --shm-size=1g \
+  --ulimit nofile=65536:1048576 \
   --cap-add=SYS_PTRACE \
   --security-opt seccomp=unconfined \
   -e VNC_PASSWD=vncpasswd \
@@ -218,5 +219,7 @@ docker run -e SNOWLUMA_QQ_FLAGS="" ... motricseven7/snowluma:latest
 或在 `docker-compose.yml` 里设 `SNOWLUMA_QQ_FLAGS: ""`。
 
 ## 注意
+
+部分新系统会把打开文件上限放到十亿级。官方 Compose 和 `scripts/run.sh` 会把它压到正常范围；镜像入口脚本也会在上限过大时自动下调，避免远程桌面卡住。自行 `docker run` 时请带上 `--ulimit nofile=65536:1048576`。
 
 SnowLuma 当前使用 native addon 对 QQ 进程进行加载，容器启动时需要 `SYS_PTRACE` 能力和 `seccomp=unconfined`。镜像内会给 `/usr/local/bin/node` 设置 `cap_sys_ptrace`，因此正常情况下不需要再修改宿主机 `kernel.yama.ptrace_scope`。请遵守第三方软件的使用许可和开源协议。

@@ -31,6 +31,7 @@ docker run -d \
   --name "${NAME}" \
   --restart unless-stopped \
   --shm-size=1g \
+  --ulimit nofile=65536:1048576 \
   --cap-add=SYS_PTRACE \
   --security-opt seccomp=unconfined \
   -e VNC_PASSWD="${VNC_PASSWD:-vncpasswd}" \

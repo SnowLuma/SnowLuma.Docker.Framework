@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Modern hosts inherit fs.nr_open (~1e9) as RLIMIT_NOFILE. Several
+# desktop helpers walk 0..limit during startup and never finish the
+# remote-desktop handshake. Lower an excessive ceiling only; never
+# raise a small existing limit.
+NOFILE_SOFT="$(ulimit -Sn)"
+NOFILE_HARD="$(ulimit -Hn)"
+if [ "${NOFILE_SOFT}" = "unlimited" ] || [ "${NOFILE_SOFT}" -gt 65536 ] 2>/dev/null; then
+  ulimit -Sn 65536 || true
+fi
+if [ "${NOFILE_HARD}" = "unlimited" ] || [ "${NOFILE_HARD}" -gt 1048576 ] 2>/dev/null; then
+  ulimit -Hn 1048576 || true
+fi
+
 : "${VNC_PASSWD:=vncpasswd}"
 : "${SNOWLUMA_UID:=1000}"
 : "${SNOWLUMA_GID:=1000}"

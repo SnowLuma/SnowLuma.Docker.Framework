@@ -4,6 +4,10 @@ services:
     container_name: ${SNOWLUMA_CONTAINER:-snowluma}
     restart: unless-stopped
     shm_size: 1gb
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 1048576
     cap_add:
       - SYS_PTRACE
     security_opt:
