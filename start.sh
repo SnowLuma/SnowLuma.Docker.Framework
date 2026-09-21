@@ -202,26 +202,45 @@ function newAccessToken() {
 }
 
 function seedOneBotFile(filePath) {
+  let existed = true;
   let cfg = {};
   try {
     cfg = JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch {
+    existed = false;
     cfg = {};
   }
-  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) cfg = {};
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
+    existed = false;
+    cfg = {};
+  }
   if (!cfg.networks || typeof cfg.networks !== 'object' || Array.isArray(cfg.networks)) {
     cfg.networks = {};
   }
   const nets = cfg.networks;
+  let changed = !existed;
 
+  const bindPublishedHost = (adapter) => {
+    if (!adapter || typeof adapter !== 'object') return false;
+    if (!isLoopbackHost(adapter.host)) return false;
+    adapter.host = onebotHost;
+    return true;
+  };
+
+  // First boot only: missing file gets the published HTTP/WS listeners.
+  // An existing empty list means the operator removed those adapters;
+  // do not put them back on every container recreate.
   const ensureServers = (key, fallback) => {
-    if (!Array.isArray(nets[key]) || nets[key].length === 0) {
-      nets[key] = [fallback];
+    if (!Array.isArray(nets[key])) {
+      if (!existed) {
+        nets[key] = [fallback];
+        changed = true;
+      }
       return;
     }
+    if (nets[key].length === 0) return;
     for (const adapter of nets[key]) {
-      if (!adapter || typeof adapter !== 'object') continue;
-      if (isLoopbackHost(adapter.host)) adapter.host = onebotHost;
+      if (bindPublishedHost(adapter)) changed = true;
     }
   };
 
@@ -244,10 +263,12 @@ function seedOneBotFile(filePath) {
     messageFormat: 'array',
     reportSelfMessage: false,
   });
-  if (!Array.isArray(nets.httpClients)) nets.httpClients = [];
-  if (!Array.isArray(nets.wsClients)) nets.wsClients = [];
+  if (!existed) {
+    if (!Array.isArray(nets.httpClients)) nets.httpClients = [];
+    if (!Array.isArray(nets.wsClients)) nets.wsClients = [];
+  }
 
-  fs.writeFileSync(filePath, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
+  if (changed) fs.writeFileSync(filePath, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
 }
 
 seedOneBotFile(path.join(configDir, 'onebot.json'));
