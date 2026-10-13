@@ -30,7 +30,7 @@ QQ_BASE_URL="https://qqdl.gtimg.cn/qqfile/QQNT/9.9.33/release/${QQ_CHANNEL}"
 QQ_MIRROR_URL="https://github.com/Rodert/qq-versions/releases/download/qq-packages-20260813-1d08f1d4"
 QQ_AMD64_SHA256="d085dd89397225061eb9f194308f688129818ed445777e97a4a0a16e13d7b0e8"
 QQ_ARM64_SHA256="8796ccfd66acc025ef18db37185532d40bc8c58921e17da6d28c295acbcf8f92"
-NODE_DIST_VERSION="v22.14.0"
+NODE_DIST_VERSION="v24.21.0"
 
 OS_ID=""
 OS_LIKE=""
@@ -840,12 +840,12 @@ install_node_host() {
   if have node; then
     local major
     major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-    if [[ "${major}" -ge 22 ]]; then
+    if [[ "${major}" -ge 24 ]]; then
       ok "已有 Node $(node -v)"
       printf '%s' "$(readlink -f "$(command -v node)")"
       return
     fi
-    warn "已有 Node $(node -v)，低于 22，将安装官方二进制 ${NODE_DIST_VERSION}"
+    warn "已有 Node $(node -v)，低于 24，将安装官方二进制 ${NODE_DIST_VERSION}"
   fi
   local tarball="node-${NODE_DIST_VERSION}-linux-${LITE_ARCH}.tar.xz"
   local dest=/tmp/${tarball}
@@ -1059,7 +1059,7 @@ if [[ "${DRY_RUN}" -eq 1 ]]; then
   if [[ "${MODE}" == docker || "${MODE}" == compose ]]; then
     write_stack
   else
-    note "host 将安装：Docker 以外的 QQ、Node 22、Xvfb/VNC、lite 包、systemd 单元"
+    note "host 将安装：Docker 以外的 QQ、Node 24、Xvfb/VNC、lite 包、systemd 单元"
     note "QQ ${QQ_VERSION}  Node ${NODE_DIST_VERSION}  lite arch ${LITE_ARCH:-?}"
   fi
   log 'dry-run 结束。'

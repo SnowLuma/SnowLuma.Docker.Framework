@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # check=skip=SecretsUsedInArgOrEnv
-ARG NODE_VERSION=22
+ARG NODE_VERSION=24
 FROM node:${NODE_VERSION}-bookworm-slim
 
 ARG TARGETARCH
